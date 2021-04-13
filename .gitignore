@@ -1,0 +1,25 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+
+# C extensions
+*.so
+
+assets/*
+cache_dir/*
+datasets/*
+embeddings/*
+logs/*
+models/*
+outputs/*
+runs/*
+tests/*
+umutextstats/*
+wandb/*
+code/*.zip
+code/logs/*
+code/results/*
+code/corenlp/*
+web-server/api/cache/*
+web-server/api/temp/*
+web-server/api/vendor/*
