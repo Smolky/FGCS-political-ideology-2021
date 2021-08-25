@@ -18,17 +18,18 @@ class CorpusStatistics ():
         """
         self.dataset = dataset
 
-    def get_line_length_distribution (self, split = 'all'):
+    def get_line_length_distribution (self, split = 'all', field = 'tweet'):
         """ 
         Obtains the distribution of the line-length 
         
-        @param split string|int|null
+        @param split string
+        @param field string
         """
         # Get datasets splits for training, validation and testing
         df = self.dataset.get ()
         df = self.dataset.get_split (df, split)
         df = self.dataset.preprocess (df)
-        return df['tweet'].str.len ().describe ()
+        return df[field].str.len ().describe ()
     
     
     def get_duplicated_labels_in_different_splits (self, label = 'user'):
@@ -39,10 +40,17 @@ class CorpusStatistics ():
         in author profiling tasks
         
         @param label
+        
+        @return set
         """
         
         # @var df DataFrame
         df = self.dataset.get ()
+        
+        
+        # No label
+        if label not in df.columns:
+            return {};
         
         
         # @var users List
@@ -53,6 +61,7 @@ class CorpusStatistics ():
     
     def get_columns_distribution_in_different_splits (self):
         """
+        get_columns_distribution_in_different_splits
         """
         
         # @var df DataFrame

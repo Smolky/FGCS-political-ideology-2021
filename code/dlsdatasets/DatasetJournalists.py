@@ -1,5 +1,5 @@
 """
-    PoliticDataset
+    DatasetJournalists
     
     This dataset includes heuristics to discard users and tweets 
     
@@ -27,9 +27,9 @@ from .Dataset import Dataset
 from scipy import stats
 
 
-class DatasetPoliCorpus (Dataset):
+class DatasetJournalists (Dataset):
     """
-    DatasetPoliCorpus
+    DatasetJournalists
     
     @extends Dataset
     """
@@ -38,21 +38,10 @@ class DatasetPoliCorpus (Dataset):
     df = None
     
     
-    # @var binary_left_parties Array Ideological left parties (right parties are those not in this list)
-    binary_left_parties = ['PSOE', 'UP', 'BNG', 'AA', 'CUP', 'EHBildu', 'ERC', 'PCR']
-    
-    
-    # Ideological parties (multiclass)
-    multiclass_moderate_left = ['PSOE', 'PCR']
-    multiclass_left = ['UP', 'AA', 'CUP', 'EHBildu', 'ERC']
-    multiclass_moderate_right = ['CS', 'BNG', 'CC', 'UPN', 'PNV', 'PP']
-    multiclass_right = ['VOX', 'JxCat']
-    
-    
     # Set the limits of tweets per user
     # Users with less than tweets_min_limit will be discarded
     # Less relevant tweets (tweets per user minus tweets_max_limit) will be discarded
-    tweets_min_limit = 120
+    tweets_min_limit = 100
     tweets_max_limit = 200
     tweets_per_task1 = 166
     
@@ -68,7 +57,11 @@ class DatasetPoliCorpus (Dataset):
         """
         This process filters the tweets to perform author profile
         """
-
+        
+        # @var political_accounts DataFrame
+        political_accounts = pd.read_csv (self.get_working_dir ('helpers', 'accounts.csv'))
+        
+        
         # Retrieve the dataframe from UMUCorpusClassifier
         self.df = super ().compile ()
         
@@ -80,14 +73,14 @@ class DatasetPoliCorpus (Dataset):
         # (1) Store the number of tweets per user
         self.df \
             .groupby (['user']).size () \
-            .to_csv (self.get_working_dir ('helpers', 'stats-politics-by-users.csv'))
+            .to_csv (self.get_working_dir ('helpers', 'stats-tweets-by-user.csv'))
 
         
         # (2) Store tweets per month
         self.df \
             .assign (month = pd.to_datetime (self.df['twitter_created_at']).dt.to_period ('M')) \
             .groupby (['user', 'month']).size () \
-            .to_csv (self.get_working_dir ('helpers', 'stats-politics-by-month.csv'))
+            .to_csv (self.get_working_dir ('helpers', 'stats-journalists-by-month.csv'))
             
         
         # Update tweet datatype to ensure it is understood as string
@@ -112,7 +105,7 @@ class DatasetPoliCorpus (Dataset):
         # Note that we store this file for further analysis
         # before removing any user nor tweet
         self.df.groupby (['user', 'language']).size () \
-            .to_csv (self.get_working_dir ('helpers', 'stats-politics-by-language.csv'))
+            .to_csv (self.get_working_dir ('helpers', 'stats-journalists-by-language.csv'))
         
         
         # Remove tweets which inferred language is not Spanish and
@@ -219,26 +212,33 @@ class DatasetPoliCorpus (Dataset):
         
         # Anonimize the dataset
         # First, we select the accounts
-        accounts = self.df['user'] \
+        # @todo User the same politicians from policorpus
+        journalist_accounts = self.df['user'] \
             .drop_duplicates () \
             .sample (frac = 1, random_state = bootstrap.seed).reset_index (drop = True)
-        
+
         
         # Create a temporal column with the name of the politician
         self.df = self.df.assign (user_temporal = self.df['user'])
         
         
         # Replace the user, both in the label and the text
-        for index, account in tqdm (accounts.items ()):
+        # Replace political in tweets
+        for index, account in tqdm (enumerate (political_accounts['user'].tolist ())):
             mask = "@user" + str (index + 1)
             self.df['tweet'] = self.df['tweet'].str.replace ("@" + account, mask, flags = re.I)
+            
+        
+        # Replace journalist in the user name 
+        for index, account in tqdm (journalist_accounts.items ()):
+            mask = "@journalist" + str (index + 1)
             self.df['user_temporal'] = self.df['user_temporal'].str.replace (account, mask, flags = re.I)
         
         
         self.df[['user', 'user_temporal']] \
             .drop_duplicates () \
-            .to_csv (self.get_working_dir ('helpers', 'accounts.csv'), index = False, quoting = csv.QUOTE_ALL)
-        
+            .to_csv (self.get_working_dir ('helpers', 'journalist-accounts.csv'), index = False, quoting = csv.QUOTE_ALL)
+
         
         # Reassign label
         self.df['label'] = self.df['user_temporal']
@@ -254,26 +254,13 @@ class DatasetPoliCorpus (Dataset):
         # This file contains the grounding truth of the politicians and we will use it 
         # to attach data as gender, age range and political affiliation to the 
         # dataset
-        helper_df = pd.read_csv (self.get_working_dir ('helpers', 'politicians-helper.csv'), header = 0, sep = ",")
-        helper_df = helper_df.rename (columns = {'twitter_account': 'user'})
+        helper_df = pd.read_csv (self.get_working_dir ('helpers', 'journalists-helper.csv'), header = 0, sep = ",")
         
         
         # Merge both dataframes based on their twitter account
-        self.df = pd.merge (left = self.df, right = helper_df[['user', 'gender', 'age', 'linked_to']], on = 'user')
-        self.df = self.df.rename (columns = {'linked_to': 'affiliation', 'age': 'age_range'})
-        
-        
-        # Binarize the age_range
-        self.df['age_range'] = pd.cut (
-            x = self.df.set_index ('age_range').index, 
-            bins = [0, 13, 18, 25, 35, 50, 65, 999], 
-            labels = ['0-12', '13-17', '18-24', '25-34', '35-49', '50-64', 'over-65']
-        )
-        
-        
-        # Ideological binary
-        self.df['ideological_binary'] = self.df['affiliation'].isin (self.binary_left_parties)
-        self.df['ideological_binary'] = self.df['ideological_binary'].apply (lambda x: 'left' if x else 'right')
+        # Ideological binary        
+        self.df = self.df.assign (ideological_multiclass = np.nan)
+        self.df = pd.merge (left = self.df, right = helper_df[['user', 'ideological_binary']], on = 'user')
         
         
         # Ideological multiclass 
@@ -282,9 +269,9 @@ class DatasetPoliCorpus (Dataset):
         self.df.loc[self.df['affiliation'].isin (self.multiclass_left), 'ideological_multiclass'] = 'left'
         self.df.loc[self.df['affiliation'].isin (self.multiclass_right), 'ideological_multiclass'] = 'right'
         self.df.loc[self.df['affiliation'].isin (self.multiclass_moderate_right), 'ideological_multiclass'] = 'moderate_right'
+
         
-        
-        # Select the tweets that belong to Task 1 and Task 2
+        # Select the tweets that belong to author profiling
         # ---------------------------------------------------------------------
         # For the author profiling task we want to know who are the authors with more 
         # tweets
@@ -310,69 +297,16 @@ class DatasetPoliCorpus (Dataset):
         # Get validation and testing by the sampling of the rest of the users
         df_task1_val = df_task1_val_test.loc[df_task1_val_test['user'].isin (rest_of_the_users)]
         df_task1_test = df_task1_val_test.loc[~df_task1_val_test['user'].isin (rest_of_the_users)]
-
+        
         
         # Sample task 1
-        df_task1_train = df_task1_train.groupby ('user').head (min_number_of_tweets)
-        df_task1_val = df_task1_val.groupby ('user').head (min_number_of_tweets)
-        df_task1_test = df_task1_test.groupby ('user').head (min_number_of_tweets)
-
-
-        # Get dataframe for task 2. 
-        # It is the same from training task 1, with the same number of tweets
-        df_task2_train = df_task1_train.copy ()
+        for _df in [df_task1_train, df_task1_val, df_task1_test]:
+            _df = _df.groupby ('user').head (min_number_of_tweets)
         
-
-        # For validation and testing the tweets are those not selected from training but that 
-        # are from the same user
-        # (1) Get all the tweets from the user in training
-        df_task2_val_test = self.df.loc[self.df['user'].isin (df_task1_train['user'].unique ())]
-        
-        
-        # (2) Remove those tweets that appear on the training of the task 2
-        df_task2_val_test = df_task2_val_test.loc[~df_task2_val_test['twitter_id'].isin (df_task2_train['twitter_id'])]
-        
-        
-        # Next, we are going to pick 40 tweets for training and 40 for testing per user
-        df_task2_val = []
-        df_task2_test = []
-        
-        
-        # Iterate over the users
-        for user in df_task1_train['user'].unique ():
-            
-            # @var candidate_tweet_ids Series Sample 80 tweets not in train
-            candidate_tweet_ids = df_task2_val_test.loc[df_task2_val_test['user'] == user].sample (n = 80, random_state = bootstrap.seed)['twitter_id']
-            
-            
-            # @var tweets_per_validation Series Sample a half
-            tweets_per_validation = candidate_tweet_ids.sample (frac = 0.5, random_state = bootstrap.seed)
-            
-            
-            # @var tweets_per_test Series
-            tweets_per_test = candidate_tweet_ids[~candidate_tweet_ids.isin(tweets_per_validation)]
-            
-            
-            # Attach in the list
-            df_task2_val.append (tweets_per_validation)
-            df_task2_test.append (tweets_per_test)
-
-        
-        # Merge all tweet ids
-        df_task2_val = pd.concat (df_task2_val, ignore_index = True)
-        df_task2_test = pd.concat (df_task2_test, ignore_index = True)
-        
-        
-        # Select those tweets for validation, and those for testing of the ones that we 
-        # sampled for each user
-        df_task2_val = df_task2_val_test.loc[df_task2_val_test['twitter_id'].isin (df_task2_val)]
-        df_task2_test = df_task2_val_test.loc[df_task2_val_test['twitter_id'].isin (df_task2_test)]
-
         
         # Create new columns to indicate which tweets belong to 
         # train, val, and test for each task
         self.df = self.df.assign (__split_author_profiling = np.nan)
-        self.df = self.df.assign (__split_author_attribution = np.nan)
         
         
         # Now we are set as True those indexes in the main DataFrame
@@ -380,14 +314,11 @@ class DatasetPoliCorpus (Dataset):
         self.df['__split_author_profiling'][df_task1_train.index] = 'train'
         self.df['__split_author_profiling'][df_task1_val.index] = 'val'
         self.df['__split_author_profiling'][df_task1_test.index] = 'test'
-        self.df['__split_author_attribution'][df_task2_train.index] = 'train'
-        self.df['__split_author_attribution'][df_task2_val.index] = 'val'
-        self.df['__split_author_attribution'][df_task2_test.index] = 'test'
         
         
         # Some texts do not belong neither to Task 1 nor Task 2 and they can 
         # be safely droped
-        self.df = self.df.drop (self.df[(self.df['__split_author_profiling'].isnull ()) & (self.df['__split_author_attribution'].isnull ())].index)
+        self.df = self.df.drop (self.df[(self.df['__split_author_profiling'].isnull ())].index)
         
         
         # Sample and reorder tweets to ensure that not all the tweets of the same authors 
@@ -399,18 +330,18 @@ class DatasetPoliCorpus (Dataset):
         self.df.groupby (['label']).first () \
                .drop (['tweet', 'twitter_id', 'twitter_created_at', 'user', 'is_relevant'], axis = 1) \
                .rename (columns = {"label": "user"}) \
-               .to_csv (self.get_working_dir ('deploy-dataset', 'policorpus-2020-truth.csv'), index = False, quoting = csv.QUOTE_ALL)
+               .to_csv (self.get_working_dir ('deploy-dataset', 'journalists-2020-truth.csv'), index = False, quoting = csv.QUOTE_ALL)
         
         
         # Generate files to store the tweets and their IDs
-        for task, label in enumerate (['__split_author_profiling', '__split_author_attribution']):
+        for task, label in enumerate (['__split_author_profiling']):
         
             # Generate a file per group
             for dataset_split in ['train', 'val', 'test']:
                 
                 # Get the names of the files
-                file_ids = open (self.get_working_dir ('deploy-dataset', 'policorpus-2020-task-' + str (task + 1) + '-' + dataset_split + '-ids.xml'), 'w')
-                file_tweets = open (self.get_working_dir ('deploy-dataset', 'policorpus-2020-task-' + str (task + 1) + '-' + dataset_split + '-tweets.xml'), 'w')
+                file_ids = open (self.get_working_dir ('deploy-dataset', 'policorpus-journalists-2020-task-' + str (task + 1) + '-' + dataset_split + '-ids.xml'), 'w')
+                file_tweets = open (self.get_working_dir ('deploy-dataset', 'policorpus-journalists-2020-task-' + str (task + 1) + '-' + dataset_split + '-tweets.xml'), 'w')
                 
                 
                 # Reference the dataframe
@@ -445,10 +376,9 @@ class DatasetPoliCorpus (Dataset):
         
         # Reorder and select columns for the daily use dataframe
         self.df = self.df[[
-            'twitter_id', 'twitter_created_at', 'user', 'label',
-            'gender', 'age_range', 'affiliation', 'ideological_binary', 
-            'ideological_multiclass', '__split_author_profiling', '__split_author_attribution',
-            'tweet'
+            'index', 'twitter_id', 'twitter_created_at', 'user', 'label',
+            'ideological_binary', 'ideological_multiclass', 
+            '__split_author_profiling', 'tweet'
         ]]
 
         
@@ -460,13 +390,11 @@ class DatasetPoliCorpus (Dataset):
         return self.df
         
         
+
     def getDFFromTask (self, task, df):
         
         """
-        Adjust the dataset for an specific task
-        
-        @param task string
-        @param df DataFrame
+        @inherit
         """
         
         # @var task_options dict
@@ -475,12 +403,7 @@ class DatasetPoliCorpus (Dataset):
         
         # Adjust the label
         self.df['label'] = self.df[task_options['label']]
-        
-        
-        # Merge tweets
-        if 'merge' in self.options['tasks'][task] and self.options['tasks'][task]['merge']:
-            self.is_merged = True
-            
+
         
         # @fix
         # The split field has changed in the merged version and it is possible it 
@@ -490,6 +413,7 @@ class DatasetPoliCorpus (Dataset):
         
         
         return df
+
 
 
     def get_columns_to_group_by_user (self):
@@ -502,7 +426,7 @@ class DatasetPoliCorpus (Dataset):
         
         
         # Attach specific columns
-        columns += ['gender', 'age_range', 'affiliation', 'ideological_binary', 'ideological_multiclass']
+        columns += ['ideological_binary', 'ideological_multiclass']
         
         
         # return columns to group
@@ -514,9 +438,5 @@ class DatasetPoliCorpus (Dataset):
         {@inherit}
         """
         return [
-            '__split_author_profiling', '__split_author_attribution', 
-            'gender', 'age_range', 'affiliation',
-            'ideological_binary', 'ideological_multiclass'
+            '__split_author_profiling', 'ideological_binary', 'ideological_multiclass'
         ]
-        
-        

@@ -1,14 +1,5 @@
 """
-    Compile a dataset
-    
-    To generate the features run:
-    ./python -W ignore generate-[lf-se-be-bf-...].py
-
-    For feature NER and POS
-    ./python -W ignore generate-ner.py 
-    
-    For feature selection
-    ./python -W ignore feature-selection.py
+    Generate the linguistic features with UMUTextStats
     
     @author José Antonio García-Díaz <joseantonio.garcia8@um.es>
     @author Rafael Valencia-Garcia <valencia@um.es>
@@ -22,11 +13,13 @@ import os.path
 from dlsdatasets.DatasetResolver import DatasetResolver
 from utils.Parser import DefaultParser
 
+from features.LinguisticFeaturesTransformer import LinguisticFeaturesTransformer
+
 
 def main ():
     
     # var parser
-    parser = DefaultParser (description = 'Compile dataset')
+    parser = DefaultParser (description = 'Generate the linguistic features')
     
 
     # @var args Get arguments
@@ -38,13 +31,19 @@ def main ():
     
     
     # @var dataset Dataset
-    dataset = resolver.get (args.dataset, args.corpus, args.task, True)
+    dataset = resolver.get (args.dataset, args.corpus, args.task, args.force)
     dataset.filename = dataset.get_working_dir (args.task, 'dataset.csv')
     
     
     # @var df Dataframe
     df = dataset.get ()
+
     
+    # @var lf_transformers LF
+    lf_transformers = LinguisticFeaturesTransformer (cache_file = dataset.get_working_dir ('lf.csv'))
+    print (lf_transformers.transform (df))
+
+
 
 if __name__ == "__main__":
     main ()

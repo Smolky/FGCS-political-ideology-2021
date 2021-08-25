@@ -3,13 +3,15 @@
     
     For this example we are using transformers Trainer
     
+    @see config.py
+    
     @link https://www.sbert.net/docs/quickstart.html
     
     @author José Antonio García-Díaz <joseantonio.garcia8@um.es>
-    @author Ricardo Colomo-Palacios <ricardo.colomo-palacios@hiof.no>
     @author Rafael Valencia-Garcia <valencia@um.es>
 """
 
+import time
 import json
 import sys
 import csv
@@ -29,7 +31,7 @@ from torch.utils.data import DataLoader
 from torch import nn
 from functools import partial
 
-from utils.PrettyPrintConfussionMatrix import PrettyPrintConfussionMatrix
+
 
 from .BaseModel import BaseModel
 
@@ -49,6 +51,10 @@ class BertModel (BaseModel):
     
     # @var total_labels List
     total_labels = []
+    
+    
+    # @var total_probabilities List
+    total_probabilities = []
     
     
     # @var field String
@@ -81,13 +87,16 @@ class BertModel (BaseModel):
         @return String
         """
         return 'dccuchile/bert-base-spanish-wwm-uncased' if self.dataset.get_dataset_language () == 'es' else 'bert-base-uncased'
-    
+        # return 'bert-base-multilingual-uncased' if self.dataset.get_dataset_language () == 'es' else 'bert-base-uncased'
+        # return 'distilbert-base-multilingual-cased' if self.dataset.get_dataset_language () == 'es' else 'bert-base-uncased'
     
     def get_tokenizer_filename (self):
         """
         @return String
         """
         return 'dccuchile/bert-base-spanish-wwm-uncased' if self.dataset.get_dataset_language () == 'es' else 'bert-base-uncased'
+        # return 'bert-base-multilingual-uncased' if self.dataset.get_dataset_language () == 'es' else 'bert-base-uncased'
+        # return 'distilbert-base-multilingual-cased' if self.dataset.get_dataset_language () == 'es' else 'bert-base-uncased'
 
     
     def tokenize (self, batch):
@@ -97,18 +106,19 @@ class BertModel (BaseModel):
         return self.tokenizer (batch[self.field], padding = True, truncation = True)
 
 
-    def createDatasetFromPandas (self, df):
+    def createDatasetFromPandas (self, df, task_type = 'classification'):
         """
         Encode datasets to work with transformers from a DataFrame and 
         "torch" the new columns. 
         
-        @param df
+        @param df DataFrame
+        @param task_type String
         
         @return Dataset
         """
         
         # Encode label as numbers instead of user names. This is necesary for PyTorch
-        df['_temp'] = df['label'].cat.codes
+        df['_temp'] = df['label'].astype (str).astype ('category').cat.codes if task_type == 'classification' else df['label']
         
         
         # Get the only labels we care (labels -if any- and the text)
@@ -142,39 +152,55 @@ class BertModel (BaseModel):
         
         return Dict
         """
-    
+        
+        # @var task_type String
+        task_type = self.dataset.get_task_type ()
+        
+        
+        # @var labels
         labels = pred.label_ids
-        preds = pred.predictions.argmax (-1)
         
         
-        # @var precision Float
-        # @var recall Float
-        # @var f1 Float
-        # @var _support array
-        precision, recall, f1, _support = sklearn.metrics.precision_recall_fscore_support (labels, preds, average = 'macro')
-        
-        
-        # @var acc Float Accuracy
-        acc = sklearn.metrics.accuracy_score (labels, preds)
+        # @var preds
+        preds = pred.predictions.argmax (-1) if 'classification' == task_type else pred.predictions
         
         
         # Store metrics in the class
         self.total_predictions = preds
         self.total_labels = labels
+        self.total_probabilities = pred.predictions
+
         
-        return {
-            'accuracy': acc,
-            'f1': f1,
-            'precision': precision,
-            'recall': recall
-        }
+        # Classification metrics
+        if 'classification' == task_type:
+        
+            # @var precision Float @var recall Float @var f1 Float @var _support array
+            precision, recall, f1, _support = sklearn.metrics.precision_recall_fscore_support (labels, preds, average = 'macro')
+            
+            
+            # @var acc Float Accuracy
+            acc = sklearn.metrics.accuracy_score (labels, preds)
+            
+            return {
+                'accuracy': acc,
+                'f1': f1,
+                'precision': precision,
+                'recall': recall
+            }
+        
+        # Regression
+        else:
+        
+            return {
+            }
     
-    def train (self, num_train_epochs = 3.0, using_official_test = True):
+    def train (self, num_train_epochs = 3.0, using_official_test = True, force = False):
         """
         @inherit
         
         @param num_train_epochs float
-        @param using_official_test
+        @param using_official_test Boolean
+        @param force Boolean
         
         """
     
@@ -184,6 +210,7 @@ class BertModel (BaseModel):
         
         # @todo @aalmodobar
         df = df[df['label'].notna ()]
+        df = df[df['__split'].notna()]
         
         
         # @var val_split String 
@@ -215,12 +242,16 @@ class BertModel (BaseModel):
         val_df = self.dataset.get_split (df, val_split)
         
         
+        # @var task_type String
+        task_type = self.dataset.get_task_type ()
+
+        
         # @var train_dataset Dataset Encode datasets to work with transformers
-        train_dataset = self.createDatasetFromPandas (train_df)
+        train_dataset = self.createDatasetFromPandas (train_df, task_type)
         
         
         # @var val_dataset Dataset Encode datasets to work with transformers
-        val_dataset = self.createDatasetFromPandas (val_df)
+        val_dataset = self.createDatasetFromPandas (val_df, task_type)
         
         
         # @var model BertForSequenceClassification Loads your fine-tunned model
@@ -269,13 +300,19 @@ class BertModel (BaseModel):
         
         
         # @todo @aalmodobar
+        """
         df = df[df['label'].notna ()]
+        """
         
         
         # @var model BertForSequenceClassification
         model = transformers.BertForSequenceClassification.from_pretrained (self.get_model_filename (), num_labels = self.dataset.get_num_labels ())
 
 
+        # @var task_type string
+        task_type = self.dataset.get_task_type ()
+        
+        
         # @var tokenizer Get the pretained tokenizer
         self.tokenizer = transformers.BertTokenizerFast.from_pretrained (self.get_tokenizer_filename ())
         
@@ -284,10 +321,10 @@ class BertModel (BaseModel):
         model.eval ()
         
         
-        # @var dataset Dataset Encode datasets to work with transformers
-        dataset = self.createDatasetFromPandas (df)
-
-
+        # @var hugging_face_dataset Dataset Encode datasets to work with transformers
+        hugging_face_dataset = self.createDatasetFromPandas (df)
+        
+        
         # @var training_args TrainingArguments
         training_args = transformers.TrainingArguments (
             output_dir = './results',
@@ -304,47 +341,37 @@ class BertModel (BaseModel):
         trainer = transformers.Trainer (
             model = model, 
             args = training_args, 
-            eval_dataset = dataset, 
+            eval_dataset = hugging_face_dataset, 
             compute_metrics = self.compute_metrics
         )
         
         
-        # @var true_labels Get true labels as string
-        true_labels = self.dataset.get_true_labels ()
-        
-        
         # @var predictions @todo I think I should return this
-        predictions = trainer.predict (dataset)
-        
-        
-        # @var labels List
-        labels = self.dataset.get_available_labels ()
+        predictions = trainer.predict (hugging_face_dataset)
         
         
         # Transform predictions into labels
-        y_predicted_classes = [true_labels[int (prediction)] for prediction in self.total_predictions]
-        y_real_classes =  [true_labels[int (true_label)] for true_label in self.total_labels]
+        if 'classification' == task_type:
 
-
-        # @testing. Grouping
-        y_real_classes = df.groupby (['user'])['label'].apply (pd.Series.mode).to_list ()
+            # @var true_labels Get true labels as string
+            true_labels = self.dataset.get_true_labels ()
+            
+            
+            # @var y_predicted_classes
+            y_predicted_classes = [true_labels[int (prediction)] for prediction in self.total_predictions]
+            
         
-        _df = df.assign (y_predicted_classes = y_predicted_classes)
-        y_predicted_classes = _df.groupby (['user'])['y_predicted_classes'].agg (lambda x: pd.Series.mode (x)[0]).to_list ()
         
-
-
-        print ("report")
-        print ("------")
-        print (sklearn.metrics.classification_report (y_true = y_real_classes, y_pred = y_predicted_classes, target_names = labels))
+        # @var model_metadata Dict
+        model_metadata = {
+            'model': model,
+            'created_at': time.ctime (os.path.getmtime (self.get_model_filename ())),
+            'probabilities': self.total_probabilities
+        }
         
         
         # run callback
         if callback:
-            callback ('bert', y_predicted_classes, y_real_classes, {})
+            callback ('bert', y_predicted_classes, model_metadata)
         
         
-        # Confusion matrix
-        cm = sklearn.metrics.confusion_matrix (y_real_classes, y_predicted_classes, labels = labels, normalize = 'true')
-        confussion_matrix_pretty_printer = PrettyPrintConfussionMatrix ()
-        confussion_matrix_pretty_printer.print (cm, labels)

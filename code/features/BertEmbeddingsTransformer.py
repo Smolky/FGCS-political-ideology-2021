@@ -6,15 +6,10 @@ import numpy as np
 import pandas as pd
 import transformers
 import torch
-import nltk
 from pathlib import Path
-
-import multiprocessing as mp
 
 from tqdm import tqdm
 
-from nltk.tokenize.toktok import ToktokTokenizer
-from nltk import sent_tokenize
 from sklearn.base import TransformerMixin
 from sklearn.base import BaseEstimator 
 
@@ -67,12 +62,6 @@ class BertEmbeddingsTransformer (BaseEstimator, TransformerMixin):
             return pd.read_csv (self.cache_file, header = 0, sep = ",")
     
         
-        # Tokenizer
-        """
-        nltk.download ('perluniprops')
-        nltk.download ('nonbreaking_prefixes')
-        """
-        
         # Load AutoModel from huggingface model repository
         tokenizer = transformers.AutoTokenizer.from_pretrained (self.model)
         
@@ -82,8 +71,18 @@ class BertEmbeddingsTransformer (BaseEstimator, TransformerMixin):
         
         
         def get_bert_embeddings (df):
-            # @var encoded_inputs
-            encoded_inputs = tokenizer (df[self.field].tolist (), padding = True, truncation = True, max_length = 256, return_tensors = 'pt')
+            """
+            @param df DataFrame
+            """
+            
+            # @var encoded_inputs Get data. Note fillna to avoid None and empty strings
+            encoded_inputs = tokenizer (
+                df[self.field].fillna ('').tolist (), 
+                padding = True, 
+                truncation = True, 
+                max_length = 256, 
+                return_tensors = 'pt'
+            )
             
             
             # Compute token embeddings
@@ -98,15 +97,15 @@ class BertEmbeddingsTransformer (BaseEstimator, TransformerMixin):
         
         
         # Iterate on batches
-        for chunk in tqdm (np.array_split (X, 100)):
+        for chunk in tqdm (np.array_split (X, min ([100, len (X)]))):
             frames.append (get_bert_embeddings (chunk))
         
         
-        # @var features DataFrame
+        # @var features DataFrame Concat frames in row axis
         features = pd.concat (frames)
         
         
-        # Create a dataframe with the features
+        # Assign column names
         features.columns = self.get_feature_names ()
         
 

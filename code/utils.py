@@ -2,7 +2,6 @@
     Utils
     
     @author José Antonio García-Díaz <joseantonio.garcia8@um.es>
-    @author Ricardo Colomo-Palacios <ricardo.colomo-palacios@hiof.no>
     @author Rafael Valencia-Garcia <valencia@um.es>
 """
 

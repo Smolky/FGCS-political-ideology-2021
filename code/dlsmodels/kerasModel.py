@@ -1,37 +1,40 @@
 """
-    Keras and Talos por hyper-parameter tunning
+    Keras hyper-parameter tunning
     
     A way to create dinamically a Keras Model. It can be used with 
     params for hyper-parameter optimisation, or to generate dinamically 
     one combination
     
+    @todo Rename
+    
     @author José Antonio García-Díaz <joseantonio.garcia8@um.es>
-    @author Ricardo Colomo-Palacios <ricardo.colomo-palacios@hiof.no>
     @author Rafael Valencia-Garcia <valencia@um.es>
 """
 
 # Import Libs
 from . import utils
+import tensorflow_addons as tfa
 import tensorflow
 import sys
-import talos
 
+from tensorflow.keras.metrics import RootMeanSquaredError as RMSE
 from tqdm import tqdm
+from keras import backend as K
+
+
+def rmse (y_pred, y_true):
+    return K.sqrt (K.mean (K.square (y_pred - y_true)))
 
 
 def create (
-    trainable_embedding_layer = True, tokenizer = None, dataset = None, shape = 'brick', number_of_classes = 3, 
-    num_layers = 1, architecture = 'dense', dropout = False, pretrained_embeddings = None, optimizer = None,
+    trainable_embedding_layer = True, tokenizer = None, dataset = None, shape = 'brick', num_layers = 1, 
+    architecture = 'dense', dropout = False, pretrained_embeddings = None, optimizer = None,
     maxlen = None, lr = None, kernel_size = None, first_neuron = 10, features = 'we', activation = 'softmax',
-    epochs = 10, batch_size = 32, output_bias = None, inputs_size = {}, unique_classes = []
+    epochs = 10, batch_size = 32, output_bias = None, inputs_size = {}, type = ''
 ):
     
     """
-    Create a Keras Model for linguistic features and word embeddings
-    
-    This model can be used with Talos or to create a specific Keras 
-    model
-    
+    Create a Keras Model
     
     Constructor
     """
@@ -41,16 +44,29 @@ def create (
         output_bias = tensorflow.keras.initializers.Constant (output_bias)
     
     
+    # @var dataset_options Dict
+    dataset_options = dataset.get_task_options ()
+        
+    
     # @var task_type String
     task_type = dataset.get_task_type ()
+    
+    
+    # @var is_imabalanced Boolean Determine if the dataset is imbalaced
+    is_imabalanced = dataset.is_imabalanced ()
     
     
     # @var metrics List
     metrics = []
     
     
+    
     # Determine configuration according to the task type
-    if (task_type == 'classification'):
+    if task_type == 'classification':
+        
+        # @var number_of_classes int
+        number_of_classes = dataset.get_num_labels ()
+
     
         # Determine if the task is binary or multi-class
         is_binary = number_of_classes <= 2
@@ -70,32 +86,93 @@ def create (
         number_of_classes_in_the_last_layer = 1 if is_binary else number_of_classes
         
         
-        # For balanced data
-        if not dataset.is_imabalanced ():
-            metrics = [tensorflow.keras.metrics.BinaryAccuracy (name = "accuracy") if is_binary else tensorflow.keras.metrics.CategoricalAccuracy (name = 'accuracy')]
-            
+        # Attach accuracy
+        metrics = [tensorflow.keras.metrics.BinaryAccuracy (name = "accuracy") if is_binary else tensorflow.keras.metrics.CategoricalAccuracy (name = 'accuracy')]
         
+        
+        # @var link https://github.com/tensorflow/tensorflow/issues/45615
+        # @var link https://www.biostat.wisc.edu/~page/rocpr.pdf
+        
+        if is_imabalanced or 'f1_score_scheme' in dataset_options:
+        
+            # @var f1_score_scheme String
+            f1_score_scheme = dataset_options['f1_score_scheme'] \
+                if 'f1_score_scheme' in dataset_options else 'micro'
+
+            
+            # Include new metrics for imbalanced datasets
+            # https://github.com/tensorflow/addons/issues/746
+            metrics += [
+                tensorflow.keras.metrics.AUC (name = 'prc', curve = 'PR'),
+                tfa.metrics.F1Score (
+                    average = f1_score_scheme, 
+                    name = 'f1_score', 
+                    threshold = .5 if is_binary else None,
+                    num_classes = number_of_classes if not is_binary else 1
+                )
+            ]
     
     # Regression problems
-    else:
+    elif task_type == 'regression':
         
         # Get the last activation layer
         # @link https://towardsdatascience.com/deep-learning-which-loss-and-activation-functions-should-i-use-ac02f1c56aa8
-        # @todo set by param
         last_activation_layer = 'linear'
         
         
-        # Define loss function as RMSE
-        # @todo set by param
-        loss_function = utils.root_mean_squared_error
+        # Define loss function as MSE
+        # loss_function = tensorflow.keras.losses.MeanSquaredError (name = 'mse')
+        loss_function = rmse
     
     
         # @var metrics Select the metric according to the problem
-        metrics = [tensorflow.keras.metrics.RootMeanSquaredError (name = 'rmse')]
+        metrics = [
+            tensorflow.keras.metrics.RootMeanSquaredError (name = 'rmse')
+        ]
         
         
         # @var number_of_neurons_in_the_last_layer int 
         number_of_classes_in_the_last_layer = 1
+        
+        
+    # Multi label problems
+    elif task_type == 'multi_label':
+    
+        # @var number_of_classes int
+        number_of_classes = dataset.get_num_labels ()
+
+        
+        # @var last_activation_layer String 
+        # @link https://medium.com/deep-learning-with-keras/how-to-solve-multi-label-classification-problems-in-deep-learning-with-tensorflow-keras-7fb933243595
+        last_activation_layer = 'sigmoid'
+        
+        
+        # @var loss_function String Depends if multiclass or binary
+        # @link https://stackoverflow.com/questions/55929401/how-to-specify-model-compile-for-binary-crossentropy-activation-sigmoid-and-act
+        loss_function = tensorflow.keras.losses.BinaryCrossentropy (from_logits = True)
+        
+        
+        # @var number_of_neurons_in_the_last_layer int
+        number_of_classes_in_the_last_layer = number_of_classes
+        
+        
+        # @var f1_score_scheme String
+        f1_score_scheme = dataset_options['f1_score_scheme'] \
+            if 'f1_score_scheme' in dataset_options else 'micro'
+            
+        
+        # Attach accuracy
+        # We need to use keras.metrics.BinaryAccuracy() for measuring the 
+        # accuracy since it calculates how often predictions match binary labels.
+        metrics = [
+            tensorflow.keras.metrics.BinaryAccuracy (name = "accuracy"),
+            tfa.metrics.F1Score (
+                average = f1_score_scheme, 
+                name = 'f1_score', 
+                num_classes = number_of_classes
+            )            
+        ]
+
         
     
     # @var neurons_per_layer List Contains a list of the neurons per layer according to 
@@ -114,12 +191,22 @@ def create (
         vocab_size = len (tokenizer.word_index) + 1
         
         
-        # @var pretrained_models from the tokenizer. 
-        custom_embeddings = {
-            'fasttext': utils.get_embedding_matrix (key = 'fasttext', tokenizer = tokenizer, dataset = dataset),
-            'glove': utils.get_embedding_matrix (key = 'glove', tokenizer = tokenizer, dataset = dataset),
-            'word2vec': utils.get_embedding_matrix (key = 'word2vec', tokenizer = tokenizer, dataset = dataset)
-        }
+        # @var language String
+        language = dataset.get_dataset_language ()
+        
+        
+        # @var custom_embeddings Dict
+        if language == 'es':
+            custom_embeddings = {
+                'fasttext': utils.get_embedding_matrix (key = 'fasttext', tokenizer = tokenizer, dataset = dataset, lang = language),
+                'glove': utils.get_embedding_matrix (key = 'glove', tokenizer = tokenizer, dataset = dataset, lang = language),
+                'word2vec': utils.get_embedding_matrix (key = 'word2vec', tokenizer = tokenizer, dataset = dataset, lang = language)
+            }
+        else:
+            custom_embeddings = {
+                'fasttext': utils.get_embedding_matrix (key = 'fasttext', tokenizer = tokenizer, dataset = dataset, lang = language)
+            }
+        
         
         
         # Define main embedding layer
@@ -218,9 +305,15 @@ def create (
     
     
     # Create the input layers for the rest of the feature sets
-    layers_input['lf'] = tensorflow.keras.layers.Input (shape = (inputs_size['lf'],), name = "input_lf") if 'lf' in features else None
-    layers_input['se'] = tensorflow.keras.layers.Input (shape = (inputs_size['se'],), name = "input_se") if 'se' in features else None
-    layers_input['be'] = tensorflow.keras.layers.Input (shape = (inputs_size['be'],), name = "input_be") if 'be' in features else None
+    layers_input['lf'] = tensorflow.keras.layers.Input (shape = (inputs_size['lf'],), name = 'input_lf') if 'lf' in features else None
+    layers_input['se'] = tensorflow.keras.layers.Input (shape = (inputs_size['se'],), name = 'input_se') if 'se' in features else None
+    layers_input['be'] = tensorflow.keras.layers.Input (shape = (inputs_size['be'],), name = 'input_be') if 'be' in features else None
+    layers_input['ne'] = tensorflow.keras.layers.Input (shape = (inputs_size['ne'],), name = 'input_ne') if 'ne' in features else None
+    layers_input['cf'] = tensorflow.keras.layers.Input (shape = (inputs_size['cf'],), name = 'input_cf') if 'cf' in features else None
+    layers_input['bf'] = tensorflow.keras.layers.Input (shape = (inputs_size['bf'],), name = 'input_bf') if 'bf' in features else None
+    layers_input['pr'] = tensorflow.keras.layers.Input (shape = (inputs_size['pr'],), name = 'input_pr') if 'pr' in features else None
+    layers_input['ng'] = tensorflow.keras.layers.Input (shape = (inputs_size['ng'],), name = 'input_ng') if 'ng' in features else None
+    layers_input['cg'] = tensorflow.keras.layers.Input (shape = (inputs_size['cg'],), name = 'input_cg') if 'cg' in features else None
     
     
     # @var inner_layers Dict
@@ -287,7 +380,6 @@ def create (
                 inner_layers[key] = tensorflow.keras.layers.Dropout (dropout, name = dropup_name)(inner_layers[key])
     
     
-    
     # @var layer_merged Layer This is necesary when we had architectures with multiple inputs
     # @todo. Maybe we need to use "-1" rather than "0"
     layer_merged = tensorflow.keras.layers.concatenate ([layer for key, layer in inner_layers.items ()]) \
@@ -302,7 +394,7 @@ def create (
     outputs = tensorflow.keras.layers.Dense (number_of_classes_in_the_last_layer, 
         activation = last_activation_layer, 
         bias_initializer = output_bias,
-        name = "output_layer"
+        name = 'output_layer'
     )(layer_merged)
     
     
@@ -311,7 +403,7 @@ def create (
     
     
     # @var Optimizer
-    optimizer = optimizer (lr = lr)
+    optimizer = optimizer (lr = lr, clipnorm = 1.0)
     
 
     # Compile model

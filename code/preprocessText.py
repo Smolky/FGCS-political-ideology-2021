@@ -4,7 +4,6 @@
     @see config.py
     
     @author José Antonio García-Díaz <joseantonio.garcia8@um.es>
-    @author Ricardo Colomo-Palacios <ricardo.colomo-palacios@hiof.no>
     @author Rafael Valencia-Garcia <valencia@um.es>
 """
 
@@ -365,7 +364,6 @@ class PreProcessText ():
         return sentences.apply (lambda x: x.replace (substring, replace))
     
     
-    
     def strip (self, sentences):
         """
         strip (trims) white spaces
@@ -374,6 +372,9 @@ class PreProcessText ():
         """
         return sentences.apply (lambda x: x.strip (" \r\n\t,.?"))
         
+    
+    def trim_ending_ellipsis (self, sentences):
+        return sentences.apply (lambda x: x.rstrip ("…"))
         
         
 def main ():

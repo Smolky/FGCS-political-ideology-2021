@@ -2,7 +2,6 @@
     Polar Charts Generation
     
     @author José Antonio García-Díaz <joseantonio.garcia8@um.es>
-    @author Ricardo Colomo-Palacios <ricardo.colomo-palacios@hiof.no>
     @author Rafael Valencia-Garcia <valencia@um.es>
 """
 
@@ -47,37 +46,52 @@ def main ():
     df = dataset.get ()
     
     
+    # @var df_train DataFrame
+    df_train = dataset.get_split (df, 'train')
+    
+    
     # @var feature_resolver FeatureResolver
     feature_resolver = FeatureResolver (dataset)
     
     
-    # @var features_cache String
-    features_cache = dataset.get_working_dir (args.task, 'lf_minmax.csv')
+    # @var feature_file String
+    feature_file = feature_resolver.get_suggested_cache_file ('lf')
+    
+    
+    # @var features_cache String The file where the features are stored
+    features_cache = dataset.get_working_dir (args.task, feature_file)
     
     
     # @var transformer
     transformer = feature_resolver.get ('lf', cache_file = features_cache)
     
     
-    # @var features_df DataFrame
+    # @var features_df DataFrame Here we include the label in the linguistic features
     features_df = transformer.transform ([]) \
         .assign (label = df['label'])
     
     
-    features_df = features_df.replace (0, np.nan).dropna (axis = 1, how = "all")
+    # Keep only the training features
+    features_df = features_df[features_df.index.isin (df_train.index)].reindex (df_train.index)    
     
     
-    # @var categories 
+    # Remove zeros. We do this to give weight only to the documents that make use of the 
+    # LF
+    # features_df = features_df.replace (0, np.nan)
+    
+    
+    # @var categories  List
     categories = list (set ([column.split ('-')[0] for column in features_df.columns if '-' in column]))
     
     
     # @var unique_labels Series Bind to the label
-    unique_labels = sorted (df['label'].unique ().to_list ())
+    unique_labels = sorted (df_train['label'].unique ().to_list ())
     
     
     # @var features_df_per_class Dict
     features_df_per_class = {label: features_df.loc[features_df['label'] == label] for label in unique_labels}
     
+    print (features_df_per_class)
     
     # @var results Dict
     results = {label: {} for label in unique_labels}
@@ -85,7 +99,9 @@ def main ():
     
     # Fill the data
     for label in unique_labels:
-        results[label] = {category: np.mean (features_df_per_class[label][[col for col in features_df.columns if col.startswith (category + '-')]].mean (axis = 1))  for category in categories }
+        results[label] = {
+            category: np.nanmean (features_df_per_class[label][[col for col in features_df.columns if col.startswith (category + '-')]].mean (skipna = True, axis = 1))  for category in categories 
+        }
 
     
     print (pd.DataFrame (results).sort_index ().to_csv ())

@@ -29,37 +29,50 @@ class TokenizerTransformer (BaseEstimator, TransformerMixin):
         self.columns = None
         self.tokenizer = None
         self.maxlen = None
-        
+
     
     # Return self nothing else to do here
     def fit (self, X, y = None ):
     
         # @var Tokenizer When fiting, we create a new tokenizer
-        self.tokenizer = keras.preprocessing.text.Tokenizer (num_words = self.max_words, oov_token = True)
+        self.tokenizer = keras.preprocessing.text.Tokenizer (
+            filters = '!"#$%&()*+,-./:;<=>?@[\\]^_`{|}~\t\n' + '¡¿',
+            num_words = self.max_words, 
+            oov_token = True,
+            lower = True
+        )
         
+        
+        # @var texts String Remove tokens
+        texts = X[self.field]
+
         
         # Fit on the data
-        self.tokenizer.fit_on_texts (X[self.field])
-        
+        self.tokenizer.fit_on_texts (texts)
+
         
         # @var maxlen int Get the max-len size
-        self.maxlen = max (len (l) for l in self.tokenizer.texts_to_sequences (X[self.field]))
+        self.maxlen = max (len (l) for l in self.tokenizer.texts_to_sequences (texts))
         
         return self 
-        
+    
+    
     def transform (self, X, **transform_params):
     
         # Return tokens from cache
         if self.cache_file and os.path.exists (self.cache_file):
             return pd.read_csv (self.cache_file, header = 0, sep = ",")
-            
         
-        # Retrieve the tokens for the subsets we are dealing with
-        features = pd.DataFrame (data = keras.preprocessing.sequence.pad_sequences (
-            self.tokenizer.texts_to_sequences (X[self.field]), 
+
+        # @var features_data
+        features_data = keras.preprocessing.sequence.pad_sequences (
+            self.tokenizer.texts_to_sequences (X[self.field].astype (str)), 
             padding = 'pre', 
             maxlen = self.maxlen
-        ))
+        )
+        
+        # Retrieve the tokens for the subsets we are dealing with
+        features = pd.DataFrame (data = features_data)
         
         
         # Create a dataframe with the features
@@ -71,12 +84,13 @@ class TokenizerTransformer (BaseEstimator, TransformerMixin):
             features.to_csv (self.cache_file, index = False)
             
         return features
-
+    
+    
     def get_feature_names (self):
         """Calculate the feature names based on maxlen"""
         return ['we_' + str (x) for x in range (1, self.maxlen + 1)]
-
-
+    
+    
     def get_tokenizer (self):
         """
         @return tokenizer
@@ -91,10 +105,14 @@ class TokenizerTransformer (BaseEstimator, TransformerMixin):
         @param token_filename string
         """
         os.makedirs (os.path.dirname (token_filename), exist_ok = True)
+        
         with open (token_filename, 'wb') as handle:
-            pickle.dump ({"tokenizer": self.tokenizer, "maxlen": self.maxlen}, handle, protocol = pickle.HIGHEST_PROTOCOL)
+            pickle.dump ({
+                'tokenizer': self.tokenizer, 
+                'maxlen': self.maxlen
+            }, handle, protocol = pickle.HIGHEST_PROTOCOL)
     
-
+    
     def load_tokenizer_from_disk (self, token_filename):
         """
         Load the tokenizer from disk

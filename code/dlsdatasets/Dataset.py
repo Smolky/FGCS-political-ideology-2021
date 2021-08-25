@@ -13,7 +13,6 @@ of UMUCorpusClassifier platform.
 @see config.py
 
 @author José Antonio García-Díaz <joseantonio.garcia8@um.es>
-@author Ricardo Colomo-Palacios <ricardo.colomo-palacios@hiof.no>
 @author Rafael Valencia-Garcia <valencia@um.es>
 """
 
@@ -35,6 +34,7 @@ import string
 import multiprocessing
 import fasttext
 import time
+import random
 
 from pathlib import Path
 from sklearn.model_selection import train_test_split
@@ -80,6 +80,8 @@ class Dataset ():
         self.options = options
         self.refresh = refresh
         self.is_merged = False
+        self.default_split = 'all'
+        self.available_labels = []
         
         
         # Handle exceptions
@@ -123,6 +125,28 @@ class Dataset ():
         """
         os.makedirs (os.path.dirname (self.filename), exist_ok = True)
         df.to_csv (self.filename, index = False, quoting = csv.QUOTE_ALL)
+        
+        
+    def group_results_by_user (self):
+        """ 
+        get_scoring_metric
+        
+        Returns boolean
+        
+        
+        @return string 
+        """
+        
+        # First, check if we have defined our custom metric for my task
+        if self.task and 'group_results_by_user' in self.options['tasks'][self.task]:
+            return self.options['tasks'][self.task]['group_results_by_user']
+        
+        # Second, check if we have defined a custom metric globally
+        if 'group_results_by_user' in self.options:
+            return self.options['group_results_by_user']
+        
+        return False
+        
     
     def get_scoring_metric (self):
         """ 
@@ -136,8 +160,8 @@ class Dataset ():
         """
         
         # First, check if we have defined our custom metric for my task
-        if self.task and 'scoring' in self.options.tasks[self.task]:
-            return self.options.tasks[self.task]['scoring']
+        if self.task and 'scoring' in self.options['tasks'][self.task]:
+            return self.options['tasks'][self.task]['scoring']
         
         # Second, check if we have defined a custom metric globally
         if 'scoring' in self.options:
@@ -175,12 +199,11 @@ class Dataset ():
         if self.task:
             self.df = self.getDFFromTask (self.task, self.df)
         
+        elif 'split' in self.options:
+            self.df['__split'] = self.df[self.options['split']]    
+
         
-        # Fine tune the dataframe
-        self.df = self.finetune_df (self.df)
-        
-        
-        return self.df
+        return self.get_split (self.df, self.default_split)
     
     
     def finetune_df (self, df):
@@ -333,7 +356,7 @@ class Dataset ():
         
         
         # Create the loading
-        loading = multiprocessing.Process (target = animated_loading, args=())
+        loading = multiprocessing.Process (target = animated_loading, args = ())
         loading.start ()
         
         
@@ -372,13 +395,94 @@ class Dataset ():
         df = pd.read_csv (io.StringIO (s.decode ('utf-8')))
         
         
+        # Assign the default train, val, and test splits. 
+        # Note that is responsability of each dataset to perform this 
+        # split, but you can always delegate on assign_default_splits
+        df = self.assign_default_splits (df)
+        
+        
         # Store this data on disk
         self.save_on_disk (df)
         
         
-        # ...
+        # Save on disk
         return df
+
+    def assign_default_folds (self, df, field = '__split_fold_', folds = 10):
     
+        """
+        assign_default_folds
+        
+        Includes the __split label in a dataframe
+        
+        @param df DataFrame
+        @param field String
+        @param folds int
+        """
+        
+        
+        # @var fields List
+        fields = [field + str (i) for i in range (1, folds + 1)]
+        
+        
+        # @var train_and_val DataFrame
+        train_and_val = df.loc[df['__split'].isin (['train', 'val'])].index
+
+        
+        # @var train_and_val test DataFrame
+        test = df.loc[df['__split'].isin (['test'])]
+        
+        
+        # Basic train test split for all splits
+        for field in fields:
+            
+            # Get a new train val split
+            df = df.assign (**{field: np.nan})
+
+
+            # Divide in train into train and validation for this fold
+            train_fold, val_fold = np.split (random.sample (list (train_and_val), len (train_and_val)), [
+                int ((self.get_train_size () / (self.get_train_size () + self.get_val_size ())) * len (train_and_val))
+            ])
+            
+            
+            # Assign splits
+            df[field][train_fold] = 'train'
+            df[field][val_fold] = 'val'
+            df[field][test.index] = 'test'
+            
+        
+    
+        return df
+        
+    def assign_default_splits (self, df, field = '__split'):
+    
+        """
+        assign_splits
+        
+        Includes the __split label in a dataframe
+        
+        @param df DataFrame
+        @param field String
+        """
+    
+        # Get random splits
+        train, val, test = np.split (df.sample (frac = 1), [
+            int (self.get_train_size () * len (df)), 
+            int ((1 - self.get_test_size ()) * len (df))
+        ])
+
+        
+        # Create column with NaNs
+        df = df.assign (__split = np.nan)
+        
+        
+        # Assign splits
+        df[field][train.index] = 'train'
+        df[field][val.index] = 'val'
+        df[field][test.index] = 'test'
+    
+        return df
     
     def get_num_labels (self):
         """
@@ -388,21 +492,93 @@ class Dataset ():
         
         @return int
         """
-        return 1 if self.get_task_type () == 'regression' else len (self.df['label'].dropna ().unique ())
+        
+        if len (self.available_labels) > 0:
+            return len (self.available_labels)
+            
+        
+        task_type = self.get_task_type ()
+        
+        # Regression have infinite number of labels, but we return 1
+        if 'regression' == task_type:
+            return 1
+        
+        if 'classification' == task_type:
+            return len (self.df.loc[self.df['__split'] == 'train']['label'].dropna ().unique ())
+
+        if 'multi_label' == task_type:
+            
+            # @var labels List Labels for the training dataset
+            labels = self.df.loc[self.df['__split'] == 'train']['label'].dropna ().unique ()
+            
+            
+            # Explode the labels by ";"
+            labels = [word.strip() for line in labels for word in line.split (';')]
+            
+            
+            # Remove duplicates
+            labels = list (set (labels))
+            
+            
+            return len (labels)
     
     
     def get_true_labels (self):
         """
-        @return Dict  Get true labels as string
+        get true labels as string
+        
+        @return Dict  
         """
-        return dict (enumerate (self.df['label'].astype ('category').cat.categories))
+        
+        return dict (enumerate (self.df.loc[self.df['__split'] == 'train']['label'].astype ('category').cat.categories))
+
     
+    def set_available_labels (self, labels):
+        """
+        @param labels List
+        """
+        self.available_labels = labels
+
     
     def get_available_labels (self):
         """
         @return Series
         """
-        return sorted (self.df['label'].unique ())
+        
+        if len(self.available_labels) == 0:
+        
+            # @var task_type String
+            task_type = self.get_task_type ()
+            
+            
+            # Regression does not have classes
+            if 'regression' == task_type:
+                return []
+                
+            if 'multi_label' == task_type:
+
+                # @var unique_labels List Labels for the training dataset
+                unique_labels = self.df.loc[self.df['__split'] == 'train']['label'].dropna ().unique ()
+                
+                
+                # Explode the labels by ";"
+                unique_labels = [word.strip() for line in unique_labels for word in line.split (';')]
+                
+                
+                # Remove duplicates
+                unique_labels = list (set (unique_labels))
+                
+            
+            if 'classification' == task_type:
+                unique_labels = self.df.loc[self.df['__split'] == 'train'].loc[self.df['label'].notna()]['label'].unique ()
+                
+                if len (unique_labels) == 0:
+                    unique_labels = self.df.loc[self.df['label'].notna()]['label'].unique ()
+            
+            self.available_labels = sorted (unique_labels)
+        
+        
+        return self.available_labels
     
     
     def get_dataset_language (self):
@@ -412,12 +588,17 @@ class Dataset ():
     
     def get_train_size (self):
         """ Returns the train_size """
-        return self.options['train_size'] if 'train_size' in self.options else 0.8
+        return self.options['train_size'] if 'train_size' in self.options else 0.6
     
     
     def get_val_size (self):
         """ Returns the val_size """
-        return self.options['val_size'] if 'val_size' in self.options else 0.25
+        return self.options['val_size'] if 'val_size' in self.options else 0.2
+        
+    
+    def get_test_size (self):
+        """ Returns the test_size """
+        return self.options['test_size'] if 'test_size' in self.options else 0.2
     
     
     def is_imabalanced (self, threshold = .15):
@@ -427,9 +608,11 @@ class Dataset ():
         @param threshold float
         """
         
+        # Regression tasks
         if self.get_task_type () == 'regression':
             return False
             
+        # In options
         if 'balanced' in self.options:
             return not self.options['balanced']
         
@@ -465,7 +648,7 @@ class Dataset ():
         preprocessing_steps = [
             'remove_urls', 'remove_hashtags', 'remove_mentions', 'remove_digits', 'remove_whitespaces', 
             'remove_elongations', 'remove_emojis', 'remove_quotations', 'remove_punctuation', 
-            'remove_whitespaces', 'strip'
+            'remove_whitespaces', 'strip', 'trim_ending_ellipsis'
         ];
         
         
@@ -476,65 +659,32 @@ class Dataset ():
         
         for pipe in tqdm (preprocessing_steps):
             df[field] = getattr (preprocess, pipe)(df[field])
-    
+        
+            
+        
         return df
     
     
-    def get_split (self, df, key):
+    def get_split (self, df, key, split_field = '__split'):
         """
         Split dataset
         Split the dataframes into training, validation and testing (0, 1, 2)
         
         @param df
         @param key string|int
+        @param split_field String
         """
         
-        # @var split__column String 
-        # To check if the split is supplied directly
-        # Note that this has changed and __split is the only valid field. In case 
-        # that you have different subtasks with different splits, please fix it 
-        # getDFFromTask from the specific dataset class you are using
-        split_field = '__split'
-        
+        if 'full' == key or 'all' == key:
+            return df
         
         # Check if the dataset has a custom split field that indicates which instances 
         # are for training, development, or testing
         if split_field in df.columns:
-            return df[df[split_field] == key]
+            return self.finetune_df (df.loc[df[split_field] == key].copy (deep = True))
         
         
-        # Short names
-        if key == 'all':
-            return df
-        
-        if key == 'train':
-            key = 0
-
-        if key == 'val':
-            key = 1
-
-        if key == 'test':
-            key = 2
-
-        
-        # @var splits Stratified split
-        splits = [None, None, None]
-        
-        
-        # Determine the strategy for stratify
-        stratify_strategy = df[self.options['stratify']] if 'stratify' in self.options else None
-        splits[0], splits[2] = train_test_split (df, train_size = self.get_train_size (), random_state = bootstrap.seed, stratify = stratify_strategy)
-        
-        stratify_strategy = splits[0][self.options['stratify']] if 'stratify' in self.options else None
-        splits[0], splits[1] = train_test_split (splits[0], test_size = self.get_val_size (), random_state = bootstrap.seed, stratify = stratify_strategy)
-        
-        
-        # Fine tune the split
-        split_df = self.finetune_df (splits[key])
-        
-        
-        # Return the selected split
-        return split_df
+        raise Exception ('the selected split does not exists')
         
         
     def get_task_type (self):

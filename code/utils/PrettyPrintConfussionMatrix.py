@@ -5,9 +5,6 @@ class PrettyPrintConfussionMatrix ():
     """
 
     def print (self, cm, labels, hide_zeroes = False, hide_diagonal = False, hide_threshold = None):
-
-        print ("confusion matrix")
-        print ("----------------")
         
         columnwidth = max([len(x) for x in labels] + [5])  # 5 is value length
         empty_cell = " " * columnwidth

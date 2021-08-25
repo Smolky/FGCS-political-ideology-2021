@@ -42,9 +42,12 @@ class LinguisticFeaturesTransformer (BaseEstimator, TransformerMixin):
         self.field = field
         self.label = label
         self.columns = None
-        
+        self.cache = None
         
     def transform (self, X, **transform_params):
+        
+        if self.cache is not None:
+            return self.cache
         
         # Return vectors from cache
         if self.cache_file and os.path.exists (self.cache_file):

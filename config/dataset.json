@@ -5,44 +5,33 @@
             "ids": [102],
             "filter-date-start": "2020-01-01",
             "filter-date-end": "2020-12-31",
+            "split": "__split_author_profiling",
             "tasks": {
-                "gender_user_level": {"scoring": "val_f1_micro", "label": "gender", "merge": 1, "split": "__split_author_profiling"},
-                "gender_tweet_level": {"scoring": "val_f1_micro", "label": "gender", "merge": 0, "split": "__split_author_profiling"},
-                "age_range_user_level": {"scoring": "val_f1_micro", "label": "age_range", "merge": 1, "split": "__split_author_profiling"},
-                "age_range_tweet_level": {"scoring": "val_f1_micro", "label": "age_range", "merge": 0, "split": "__split_author_profiling"},
-                "ideological_binary_user_level": {"scoring": "val_f1_micro", "label": "ideological_binary", "merge": 1, "split": "__split_author_profiling"},
-                "ideological_binary_tweet_level": {"scoring": "val_f1_micro", "label": "ideological_binary", "merge": 0, "split": "__split_author_profiling"},
-                "ideological_multiclass_user_level": {"scoring": "val_f1_micro", "label": "ideological_multiclass", "merge": 1, "split": "__split_author_profiling"},
-                "ideological_multiclass_tweet_level": {"scoring": "val_f1_micro", "label": "ideological_multiclass", "merge": 0, "split": "__split_author_profiling"},
-                
-                "author_identification_user_level": {"scoring": "val_f1_micro", "label": "user", "merge": 1, "split": "__split_author_attribution"},
-                "author_identification_tweet_level": {"scoring": "val_f1_micro", "label": "user", "merge": 0, "split": "__split_author_attribution"}
-                
+                "gender_user_level": {"scoring": "val_f1_score", "f1_score_scheme": "macro", "label": "gender", "merge": 1, "split": "__split_author_profiling"},
+                "gender_tweet_level": {"scoring": "val_f1_score", "f1_score_scheme": "macro", "label": "gender", "merge": 0, "split": "__split_author_profiling", "group_results_by_user": 1},
+                "age_range_user_level": {"scoring": "val_f1_score", "f1_score_scheme": "macro", "label": "age_range", "merge": 1, "split": "__split_author_profiling"},
+                "age_range_tweet_level": {"scoring": "val_f1_score", "f1_score_scheme": "macro", "label": "age_range", "merge": 0, "split": "__split_author_profiling", "group_results_by_user": 1},
+                "ideological_binary_user_level": {"scoring": "val_f1_score", "f1_score_scheme": "macro", "label": "ideological_binary", "merge": 1, "split": "__split_author_profiling"},
+                "ideological_binary_tweet_level": {"scoring": "val_f1_score", "f1_score_scheme": "macro", "label": "ideological_binary", "merge": 0, "split": "__split_author_profiling", "group_results_by_user": 1},
+                "ideological_multiclass_user_level": {"scoring": "val_f1_score", "f1_score_scheme": "macro", "label": "ideological_multiclass", "merge": 1, "split": "__split_author_profiling"},
+                "ideological_multiclass_tweet_level": {"scoring": "val_f1_score", "f1_score_scheme": "macro", "label": "ideological_multiclass", "merge": 0, "split": "__split_author_profiling", "group_results_by_user": 1},
+                "author_identification_user_level": {"scoring": "val_f1_score", "f1_score_scheme": "macro", "label": "user", "merge": 1, "split": "__split_author_attribution"},
+                "author_identification_tweet_level": {"scoring": "val_f1_score", "f1_score_scheme": "macro", "label": "user", "merge": 0, "split": "__split_author_attribution"}
             }
         }
     },
     
-    "pan-author-profiling": {
-        "2018": {
-            "datasetClass": "DatasetPANAuthorProfiling2018", 
-            "train_size": 0.8,
-            "val_size": 0.2,
-            "evaluate_with_test": 1,
-            "tasks": {
-                "gender_user_level": {"scoring": "val_accuracy", "label": "label", "merge": 1},
-                "gender_tweet_level": {"scoring": "val_accuracy", "label": "label", "merge": 0}
-            }
-        },
-        "2019": {
-            "datasetClass": "DatasetPANAuthorProfiling2019", 
-            "train_size": 0.8,
-            "val_size": 0.2,
-            "evaluate_with_test": 1,
-            "tasks": {
-                "nature_user_level": {"scoring": "val_accuracy", "label": "nature", "merge": 1},
-                "nature_tweet_level": {"scoring": "val_accuracy", "label": "nature", "merge": 0},
-                "gender_user_level": {"scoring": "val_accuracy", "label": "gender", "merge": 1, "stratify": "label"},
-                "gender_tweet_level": {"scoring": "val_accuracy", "label": "gender", "merge": 0, "stratify": "label"}
+    "journalists": {
+        "policorpus": {
+            "datasetClass": "DatasetJournalists", 
+            "ids": [116],
+            "filter-date-start": "2020-01-01",
+            "filter-date-end": "2020-12-31",
+            "tasks": { 
+                "ideological_binary_user_level": {"scoring": "val_f1_score", "f1_score_scheme": "macro", "label": "ideological_binary", "merge": 1, "split": "__split_author_profiling"},
+                "ideological_binary_tweet_level": {"scoring": "val_f1_score", "f1_score_scheme": "macro", "label": "ideological_binary", "merge": 0, "split": "__split_author_profiling"},
+                "ideological_multiclass_user_level": {"scoring": "val_f1_score", "f1_score_scheme": "macro", "label": "ideological_multiclass", "merge": 1, "split": "__split_author_profiling"},
+                "ideological_multiclass_tweet_level": {"scoring": "val_f1_score", "f1_score_scheme": "macro", "label": "ideological_multiclass", "merge": 0, "split": "__split_author_profiling"}
             }
         }
     }

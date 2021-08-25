@@ -1,10 +1,7 @@
 """
-    Configuration of the paths
-    
-    Please, contact with the authors in case of doubt
+    Configuration of the pathss
     
     @author José Antonio García-Díaz <joseantonio.garcia8@um.es>
-    @author Ricardo Colomo-Palacios <ricardo.colomo-palacios@hiof.no>
     @author Rafael Valencia-Garcia <valencia@um.es>
 """
 
@@ -22,9 +19,7 @@ umucorpusclassifier_api_endpoint = 'https://collaborativehealth.inf.um.es/corpus
 
 
 # @var umutextstats_api_endpoint String
-# @note UMUTextStats is not available in this repo. Please, contact with the authors 
-# in order to gain access
-umutextstats_api_endpoint = 'php umutextstats.php'
+umutextstats_api_endpoint = 'php /home/rafa_pepe/umutextstats/api/umutextstats.php'
 
 
 
@@ -61,7 +56,8 @@ pretrained_models = {
     
     'en': {
         'fasttext': {
-            'vectors': os.path.join (directories['pretrained'], 'cc.en.300.vec'),
+            'binary': os.path.join (directories['pretrained'], 'cc.en.300.bin'),
+            'vectors': os.path.join (directories['pretrained'], 'cc.en.300.vec')
         },
         
         'glove': {

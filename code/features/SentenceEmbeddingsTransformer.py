@@ -39,6 +39,7 @@ class SentenceEmbeddingsTransformer (BaseEstimator, TransformerMixin):
         self.field = field
         self.cache_file = cache_file
 
+
     def transform (self, X, **transform_params):
 
         # Return vectors from cache

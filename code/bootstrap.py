@@ -4,7 +4,6 @@ Bootstrapping
 Contains a lot of stuff that is reused continously in all the packages
 
 @author José Antonio García-Díaz <joseantonio.garcia8@um.es>
-@author Ricardo Colomo-Palacios <ricardo.colomo-palacios@hiof.no>
 @author Rafael Valencia-Garcia <valencia@um.es>
 """
 
@@ -52,4 +51,4 @@ tensorflow.compat.v1.keras.backend.set_session (sess)
 
 # Configure pretty print options
 np.set_printoptions (formatter = {'float_kind': "{:.5f}".format})
-
+pd.set_option ('display.float_format', lambda x: '%.3f' % x)

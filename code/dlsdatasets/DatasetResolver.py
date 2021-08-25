@@ -13,8 +13,7 @@ import os.path
 
 from .Dataset import Dataset
 from .DatasetPoliCorpus import DatasetPoliCorpus
-from .DatasetPANAuthorProfiling2018 import DatasetPANAuthorProfiling2018
-from .DatasetPANAuthorProfiling2019 import DatasetPANAuthorProfiling2019
+from .DatasetJournalists import DatasetJournalists
 
 
 class DatasetResolver ():
